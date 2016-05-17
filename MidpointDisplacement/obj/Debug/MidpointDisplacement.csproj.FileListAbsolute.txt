@@ -1,0 +1,8 @@
+c:\users\branric\documents\visual studio 2015\Projects\MidpointDisplacement\MidpointDisplacement\bin\Debug\MidpointDisplacement.exe.config
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\bin\Debug\MidpointDisplacement.exe.config
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\bin\Debug\MidpointDisplacement.exe
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\bin\Debug\MidpointDisplacement.pdb
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\obj\Debug\MidpointDisplacement.Properties.Resources.resources
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\obj\Debug\MidpointDisplacement.csproj.GenerateResource.Cache
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\obj\Debug\MidpointDisplacement.exe
+C:\GitRepos\MidpointDisplacement\MidpointDisplacement\obj\Debug\MidpointDisplacement.pdb
