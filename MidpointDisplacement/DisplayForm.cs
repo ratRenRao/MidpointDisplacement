@@ -5,7 +5,9 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.Remoting.Messaging;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -15,48 +17,142 @@ namespace MidpointDisplacement
     public partial class DisplayForm : Form
     {
         public int TotalPoints { get; private set; }
-        public double MinHeight, MaxHeight;
-        private double WeightMinimum { get; set; }
+        public float MinHeight, MaxHeight, MaxWidth, MinWidth;
+        private float WeightMinimum { get; set; }
         private int XVariance { get; set; }
         private int YVariance { get; set; }
-        private Random _random = new Random();
+        private readonly Random _random = new Random();
+        private static readonly AutoResetEvent Wait = new AutoResetEvent(true); 
+        private int _generatedPoints = 0;
+        private readonly object _countLock = new object();
 
-        public DisplayForm(int points = 6, int xVariance = 10, int yVariance = 50)
+        public DisplayForm(int points = 100, int xVariance = 20, int yVariance = 20)
         {
             TotalPoints = points;
-            WeightMinimum = Math.Pow(.75, points - 1);
+            WeightMinimum = (float) Math.Pow(.75, points - 1);
             XVariance = xVariance;
             YVariance = yVariance;
-            MinHeight = 0.6*Height;
-            MaxHeight = 0.9*Height;
+            MinHeight = (float) (0.6*Height);
+            MaxHeight = (float) (0.9*Height);
+            MinWidth = (float) (0.6*Width);
+            MaxWidth = (float) (0.9*Width);
+
             InitializeComponent();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
-            var generatedLines = GeneratePointsItteratively();
-            generatedLines = ConcatArrays(ConcatArrays(new[] {new PointF(0, Height/2)}, generatedLines),
-                new[] {new PointF(Width, Height/2)});
+            //var generatedLines = GeneratePointsItteratively();
+            var leftPoint = new PointF(0, GetWeightedVariance(0, (float) (Height*.3) * 2)); 
+            var rightPoint = new PointF(Width, GetWeightedVariance(0, (float) (Height*.3) * 2));
+
+            var generatedLines = GeneratePointsRecursively(leftPoint, rightPoint);
+
+            // Add end points
+            generatedLines = ConcatArrays(new[] {leftPoint, rightPoint}, generatedLines);
+
+            Array.Sort(generatedLines, (x, y) => x.X.CompareTo(y.X));
+            for(var i = 0; i < generatedLines.Length; i++)
+            {
+                generatedLines[i].Y = Height - generatedLines[i].Y;
+            }
+
             g.DrawLines(new Pen(Color.Black), generatedLines);
+            foreach(var point in generatedLines)
+                g.DrawRectangle(new Pen(Color.Red), point.X, point.Y, 3f, 3f);
         }
 
-        private PointF[] GeneratePointsRecursively(PointF midPoint, double weight)
+        private PointF[] GeneratePointsRecursively(PointF leftBoundary, PointF rightBoundary)
         {
-            weight *= .75;
-            weight *= .75;
-            var lowerPoint = new PointF((float) (midPoint.X - midPoint.X/2 * weight), _random.Next((int) (midPoint.Y - YVariance), (int) (midPoint.Y + YVariance)));
-            var upperPoint = new PointF((float) (midPoint.X + midPoint.X/2 * weight), _random.Next((int) (midPoint.Y - YVariance), (int)(midPoint.Y + YVariance))); ;
+            var newX = GetWeightedVariance(rightBoundary.X, leftBoundary.X);
 
-            if (weight <= WeightMinimum)
-                return new[] {lowerPoint, midPoint, upperPoint};
+            var midPoint = new PointF(newX, leftBoundary.X == 0 && rightBoundary.X == Width
+                ? (float) (Height*.85)
+                : GetWeightedVariance(rightBoundary.Y, leftBoundary.Y));
 
-            var lowerPointSubset = GeneratePointsRecursively(lowerPoint, weight);
-            var upperPointSubset = GeneratePointsRecursively(upperPoint, weight);
+            lock (_countLock)
+                _generatedPoints++;
 
+            if (_generatedPoints > TotalPoints)
+                return new[] {midPoint};
+
+            PointF[] upperPointSubset, lowerPointSubset;
+            if (_random.Next(1) == 0)
+            { 
+                lowerPointSubset = GeneratePointsRecursively(leftBoundary, midPoint);
+                upperPointSubset = GeneratePointsRecursively(midPoint, rightBoundary);
+            }
+            else
+            {
+                upperPointSubset = GeneratePointsRecursively(midPoint, rightBoundary);
+                lowerPointSubset = GeneratePointsRecursively(leftBoundary, midPoint);
+            }
             return ConcatArrays(ConcatArrays(lowerPointSubset, new[] {midPoint}), upperPointSubset);
         }
 
+        
+        private T[] ConcatArrays<T>(T[] array1, T[] array2)
+        {
+            int array1Length = array1.Length;
+            Array.Resize(ref array1, array1Length + array2.Length);
+            Array.Copy(array2, 0, array1, array1Length, array2.Length);
+
+            return array1;
+        }
+
+        private float FindY(PointF leftPoint, PointF rightPoint)
+        {
+            var newY = Math.Abs((rightPoint.Y + leftPoint.Y)/2);
+            return newY;
+        }
+
+        private float GetWeightedVariance(float p1, float p2)
+        {
+            var min = p1 > p2 ? p2 : p1;
+            var max = p1 < p2 ? p2 : p1;
+            var hat = GenerateHat(min, max).ToList();
+            Wait.WaitOne();
+            return hat[_random.Next(hat.Count)]*(_random.Next(1) == 0 ? 1 : -1);
+        }
+
+        private static IEnumerable<float> GenerateHat(float index, float end)
+        {
+            int count = 0;
+            int k = 0;
+            int mid = (int) (Math.Floor(end + index)/2);
+
+            while (index <= mid)
+            {
+                for (int i = 0; i <= count; i++)
+                {
+                    yield return index;
+                }
+                count += k;
+                k++;
+                index += 2;
+            };
+
+            Wait.Set();
+        }
+
+        private int GenerateXVariance(float leftX, float rightX, float newX)
+        {
+            //return (int) (_random.Next(-XVariance, XVariance)*weight);
+            var baseChange = rightX - (leftX + rightX) / 2;
+            var weightedMax = (Math.Abs(rightX - leftX) / MaxWidth) * 100;
+
+            return 0;
+        }
+
+        private int GenerateYVariance(float y)
+        {
+            //return (int) (_random.Next(-XVariance, XVariance)*weight);
+            return 0;
+        }
+
+
+        /*
         private PointF[] GeneratePointsItteratively()
         {
             double weight = 1;
@@ -88,7 +184,7 @@ namespace MidpointDisplacement
                     continue;
                 //weight = 1 - (i - 1) * (1 / TotalPoints);
 
-                var newPoint = FindPointOnLine(points[i - 1], points[i], valuesOfX[i]);
+                var newPoint = new PointF(newX, FindY(points[i - 1], points[i], valuesOfX[i]));
                 newPoint.Y += GenerateYVariance(weight);
                 if(i >= valuesOfX.Length / 2)
                     points.Insert(i + 1, newPoint);
@@ -100,31 +196,6 @@ namespace MidpointDisplacement
 
             return points.ToArray();
         }
-
-        private int GenerateXVariance(double weight)
-        {
-            return (int) (_random.Next(-XVariance, XVariance)*weight);
-        }
-
-        private int GenerateYVariance(double weight)
-        {
-            return (int) (_random.Next(-XVariance, XVariance)*weight);
-        }
-
-        private T[] ConcatArrays<T>(T[] array1, T[] array2)
-        {
-            int array1Length = array1.Length;
-            Array.Resize(ref array1, array1Length + array2.Length);
-            Array.Copy(array2, 0, array1, array1Length, array2.Length);
-
-            return array1;
-        }
-
-        private PointF FindPointOnLine(PointF leftPoint, PointF rightPoint, float newX)
-        {
-            var angle = rightPoint.Y/leftPoint.X;
-            var newY = Math.Atan(angle)*newX;
-            return new PointF(newX, (float) newY);
-        }
+        */
     }
 }
